@@ -1,15 +1,18 @@
-import requests, os, time, json
+import requests, os, time, json, io
 import argparse, sys
 from datetime import datetime
 
+
 from multiprocessing import Pool
+
+postListGlobal = []
+
 
 ##########################################################################################################
 def getRequests(url):
 
     requests_result = requests.get(url, headers={'Connection':'close'}).json()
     time.sleep(0.01)
-
     return requests_result
 
 ##########################################################################################################
@@ -26,7 +29,6 @@ def getFeedIds(feeds, feed_list):
     if 'paging' in feeds and 'next' in feeds['paging']:
         feeds_url = feeds['paging']['next']
         feed_list = getFeedIds(getRequests(feeds_url), feed_list)
-
     return feed_list
 
 ##########################################################################################################
@@ -57,7 +59,7 @@ def getComments(comments, comments_count):
             if stream:
                 print(comment_content)
             else:
-                print('Processing comment: ' + comment['id'] + '\n')
+                #print('Processing comment: ' + comment['id'] + '\n')
                 comment_file = open(comments_dir + comment['id'] + '.json', 'w')
                 comment_file.write(json.dumps(comment_content, indent = 4, ensure_ascii = False))
                 comment_file.close()
@@ -72,7 +74,6 @@ def getComments(comments, comments_count):
 
 ##########################################################################################################
 def getReactions(reactions, reactions_count_dict):
-
     # If reactions exist.
     reactions = reactions['reactions'] if 'reactions' in reactions else reactions
     if 'data' in reactions:
@@ -100,7 +101,7 @@ def getReactions(reactions, reactions_count_dict):
             if stream:
                 print(reaction)
             else:
-                print('Processing reaction: ' + reaction['id'] + '\n')
+               #bleh print('Processing reaction: ' + reaction['id'] + '\n')
                 reaction_file = open(reactions_dir + reaction['id'] + '.json', 'w')
                 reaction_file.write(json.dumps(reaction, indent = 4, ensure_ascii = False))
                 reaction_file.close()
@@ -109,9 +110,17 @@ def getReactions(reactions, reactions_count_dict):
         # Check reactions has next or not.
         if 'next' in reactions['paging']:
             reactions_url = reactions['paging']['next']
+           # print("REAC CHECK: " + str(getRequests(reactions_url), reactions_count_dict))
             reactions_count_dict = getReactions(getRequests(reactions_url), reactions_count_dict)
             
     return reactions_count_dict
+
+##########################################################################################################
+def getFollowerCount(followerCount_req):
+    followerCount_req = followerCount_req['followerCount_req'] if 'followerCount_req' in followerCount_req else followerCount_req
+    #print(followerCount_req)
+    return followerCount_req['fan_count']
+
 
 ##########################################################################################################
 def getAttachments(attachments, attachments_content):
@@ -126,9 +135,63 @@ def getAttachments(attachments, attachments_content):
     return attachments_content
 
 ##########################################################################################################
+def getFeedType(feedType_req):
+        feedType_req = feedType_req['feedType_req'] if 'feedType_req' in feedType_req else feedType_req
+        return feedType_req['type']
+
+##########################################################################################################
+def getMessage(message_req):
+        message_req = message_req['message_req'] if 'message_req' in message_req else message_req
+        return message_req['message']
+
+##########################################################################################################
+def getOptimizedReactions(opt_reactions):
+        opt_reactions = opt_reactions['opt_reactions'] if 'opt_reactions' in opt_reactions else opt_reactions
+        #print("USER THIS: ", opt_reactions)
+        like = ((opt_reactions['LIKE'])['summary'])['total_count']
+        #print("LIKE: ", like)
+        love = ((opt_reactions['LOVE'])['summary'])['total_count']
+        haha = ((opt_reactions['HAHA'])['summary'])['total_count']
+        wow = ((opt_reactions['WOW'])['summary'])['total_count']
+        sad = ((opt_reactions['SAD'])['summary'])['total_count']
+        angry =((opt_reactions['ANGRY'])['summary'])['total_count']
+
+        reactions_count_dict1 = {
+            'like': like,
+            'love': love,
+            'haha': haha,
+            'wow': wow,
+            'sad': sad,
+            'angry': angry
+        }
+
+
+        return reactions_count_dict1
+
+##########################################################################################################
 def getFeed(feed_id):
 
+    global postListGlobal
+
     feed_url = 'https://graph.facebook.com/v2.7/' + feed_id
+    accessable_feed_url = feed_url + '?' + tokenGlobal
+    #print("accessable " + accessable_feed_url)
+    message_feed_url = feed_url +'?fields=message&' + tokenGlobal
+    #print("message: " + message_feed_url)
+
+    post = dict()
+    feed_type_url = feed_url + '?fields=type&' + tokenGlobal
+    feed_type = getFeedType(getRequests(feed_type_url))
+    #print("type" + feed_type)
+    post['type'] = feed_type
+    #print("Feed type: " + feed_type)
+
+    message = getMessage(getRequests(message_feed_url))
+    #print(type(message))
+    post['message'] = message
+    # message.decode('utf-8')
+
+
 
     if not stream:
         feed_dir = feed_id + '/'
@@ -144,21 +207,46 @@ def getFeed(feed_id):
 
     # For comments.
     comments_url = feed_url + '?fields=comments.limit(100)&' + token
+    
     comments_count = getComments(getRequests(comments_url), 0)
+    post['comment count'] = comments_count
+
+
+    reactions_summary_url = feed_url + '?fields=reactions.type(LIKE).limit(0).summary(true).as(LIKE),reactions.type(LOVE).limit(0).summary(true).as(LOVE),\
+    reactions.type(HAHA).limit(0).summary(true).as(HAHA),reactions.type(WOW).limit(0).summary(true).as(WOW),\
+    reactions.type(SAD).limit(0).summary(true).as(SAD),reactions.type(ANGRY).limit(0).summary(true).as(ANGRY)&' + token
+
+    opt = getOptimizedReactions(getRequests(reactions_summary_url))
+    #print("DIC 1: " , opt)
+
+    #print("YAAAA: ", reactions_summary_url)
 
     # For reactions.
-    if get_reactions:
-        reactions_count_dict = {
-            'like': 0,
-            'love': 0,
-            'haha': 0,
-            'wow': 0,
-            'sad': 0,
-            'angry': 0
-        }
-        reactions_url = feed_url + '?fields=reactions.limit(100)&' + token
-        reactions_count_dict = getReactions(getRequests(reactions_url), reactions_count_dict)
+    # if get_reactions:
+    #     reactions_count_dict = {
+    #         'like': 0,
+    #         'love': 0,
+    #         'haha': 0,
+    #         'wow': 0,
+    #         'sad': 0,
+    #         'angry': 0
+    #     }
+    #     reactions_url = feed_url + '?fields=reactions.limit(100)&' + token
+    #     test = feed_url + 'fields=reactions.type(like)&' + token
+    #     #print('TESTTTT', test)
+    #     reactions_count_dict = getReactions(getRequests(reactions_url), reactions_count_dict)
+      #  post['reactions'] = reactions_count_dict
+    post['reactions'] = opt
     
+
+       # print("DIC: " , reactions_count_dict)
+    #postListGlobal.append(post)
+
+    
+
+    #print(data)
+
+
     # For attachments.
     attachments_content = {
         'title': '',
@@ -183,7 +271,7 @@ def getFeed(feed_id):
         feed_content.update(attachments_content)
 
         if get_reactions:
-            feed_content.update(reactions_count_dict)
+            feed_content.update(opt)
 
         if stream:
             print(feed_content)
@@ -195,9 +283,11 @@ def getFeed(feed_id):
     if not stream:
         os.chdir('../')
 
+    return post
+
 ##########################################################################################################
 def getTarget(target):
-
+    
     if not stream:
         target_dir = target + '/'
         if not os.path.exists(target_dir):
@@ -221,9 +311,37 @@ def getTarget(target):
             feed_list_file.write(id + '\n')
         feed_list_file.close()
 
+    
+   
+
+    feed_list = [str(i) for i in feed_list] 
+   # print("Feed LIST: " + feed_list)
+    
+
     #Get message, comments and reactions from feed.
     target_pool = Pool()
-    target_pool.map(getFeed, feed_list)
+    postList = target_pool.map(getFeed, feed_list)
+    #print(postList)    
+
+
+    followerCount_url = 'https://graph.facebook.com/'+target+'/?fields=fan_count&'+token
+    followerCount = getFollowerCount(getRequests(followerCount_url))
+
+    #print(postListGlobal)
+    data = {
+        'Artist Name' : 'x',
+        'Artist Login' : target ,
+        'File create date/time' : str(datetime.now()), 
+        'Follower Count' : followerCount,
+        'Posts': postList
+    }
+
+    #print(data)
+
+    with io.open (target +'.json', 'w', encoding = "utf-8") as fp:
+        json.dump(data, fp, indent = 4, ensure_ascii=False)
+
+
     target_pool.close()
 
     if not stream:
@@ -238,6 +356,8 @@ def getTarget(target):
 
 ##########################################################################################################
 if __name__ == '__main__':
+
+
     # Set crawler target and parameters.
     parser = argparse.ArgumentParser()
 
@@ -250,7 +370,11 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    target = str(args.target)
+    target = str(args.target) #artist fb name
+    global targGlobal 
+    targGlobal = target
+
+
     since = str(args.since)
     until = str(args.until)
 
@@ -264,10 +388,13 @@ if __name__ == '__main__':
     else:
         stream = False
 
-    app_id = 'YOUR_APP_ID'
-    app_secret = 'YOUR_APP_SECRET'
+    app_id = '157949204752963'
+    app_secret = '2aa1ebdf5aa5cb1e190ffdc21b032c99'
 
     token = 'access_token=' + app_id + '|' + app_secret
+
+    global tokenGlobal
+    tokenGlobal = token
 
     #Create a directory to restore the result if not in stream mode.
     if not stream:
@@ -277,12 +404,25 @@ if __name__ == '__main__':
         os.chdir(result_dir)
 
     if target.find(',') == -1:
-
+        #followerCount_url = 'https://graph.facebook.com/'+target+'/?fields=fan_count&'+token
+        #print("FOLLOWWWWW:" + followerCount_url)
+        #followerCount = getFollowerCount(getRequests(followerCount_url))
+        #print("COUNT " + str(followerCount))
         getTarget(target)
         
-    else:
 
+         #For follower Count
+        
+    else:
+        #followerCount_url = 'https://graph.facebook.com/'+target+'/?fields=fan_count&'+token
+        #followerCount = getFollowerCount(getRequests(followerCount_url))
+
+        #print("FOLLOWWWWW: " + str(followerCount_url))
         target = target.split(',')
         for t in target :
             getTarget(t)
+
+    #print(postListGlobal)
+        
+
 
