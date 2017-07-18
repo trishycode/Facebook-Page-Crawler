@@ -9,8 +9,11 @@ with open('seed.csv', 'r') as csvfile:
 		endDateTime = row[2]
 		script = 'python3 Facebook_Page_Crawler.py \'' + target + '\' \''+startDateTime+'\' \''+ endDateTime +'\' -r yes'
 		print(script)
-		os.system(script)
-		print (row)		
+		try:
+			os.system(script)
+		except IOError:
+			print("Entry invalid; check specified time range")
+		#print (row)		
 
 
 

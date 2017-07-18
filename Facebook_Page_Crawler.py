@@ -1,4 +1,4 @@
-import requests, os, time, json, io
+import requests, os, time, json, io, warnings
 import argparse, sys
 from datetime import datetime
 
@@ -303,7 +303,13 @@ def getTarget(target):
 
     #Get list of feed id from target.
     feeds_url = 'https://graph.facebook.com/v2.7/' + target + '/?fields=feed.limit(100).since(' + since + ').until(' + until + '){id}&' + token
-    feed_list = getFeedIds(getRequests(feeds_url), [])
+    feed_list = []
+    try:
+        feed_list = getFeedIds(getRequests(feeds_url), [])
+    except:
+        print("No posts in specified range for "+target+". Please expand the time range to allow for more posts")
+
+    #feed_list = getFeedIds(getRequests(feeds_url), [])
 
     if not stream:
         feed_list_file = open('feed_ids', 'w')
@@ -408,6 +414,7 @@ if __name__ == '__main__':
         #print("FOLLOWWWWW:" + followerCount_url)
         #followerCount = getFollowerCount(getRequests(followerCount_url))
         #print("COUNT " + str(followerCount))
+        print("TARGET: ", target)
         getTarget(target)
         
 
